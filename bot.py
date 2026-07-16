@@ -330,17 +330,11 @@ def make_event_block(event):
 
     title = html.escape(str(title).strip())
 
-    unit = event.get("unit") or ""
-
-    actual = format_value(event.get("actual"), unit)
-    forecast = format_value(event.get("forecast"), unit)
-    previous = format_value(event.get("previous"), unit)
-
     return (
         f"<b>{event_time}  {country_code} {flag}</b>\n"
-        f"★★★ │ <b>{title}</b>\n"
-        f"실제: {actual}　예측: {forecast}　이전: {previous}"
+        f"★★★ │ <b>{title}</b>"
     )
+
 
 
 def make_messages(target_date, events):
