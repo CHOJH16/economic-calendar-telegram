@@ -21,14 +21,6 @@ PARSE_API_URL = (
     "get_calendar"
 )
 
-INVESTING_CALENDAR_URL = (
-    "https://kr.investing.com/economic-calendar"
-)
-
-HANKYUNG_CALENDAR_URL = (
-    "https://datacenter.hankyung.com/economic-calendar"
-)
-
 
 # ─────────────────────────────────────
 # 인베스팅 주요 24개 국가
@@ -105,6 +97,10 @@ WEEKDAYS_KO = [
 ]
 
 
+# 모바일에서 줄바꿈되지 않도록 짧게 설정
+DIVIDER = "━━━━━━━━━━━━"
+
+
 # ─────────────────────────────────────
 # GitHub Secrets 확인
 # ─────────────────────────────────────
@@ -114,8 +110,7 @@ def get_required_env(name):
 
     if not value:
         raise RuntimeError(
-            f"{name}가 GitHub Secrets에 "
-            "등록되어 있지 않습니다."
+            f"{name}가 GitHub Secrets에 등록되어 있지 않습니다."
         )
 
     return value
@@ -126,20 +121,8 @@ def get_required_env(name):
 # ─────────────────────────────────────
 
 def wait_until_7_kst():
-    """
-    예약 실행일 때만 한국시간 오전 7시까지 기다립니다.
-
-    GitHub Actions가 오전 7시 이후에 시작되면
-    기다리지 않고 즉시 실행합니다.
-
-    수동 실행은 기다리지 않고 바로 실행됩니다.
-    """
     should_wait = (
-        os.environ.get(
-            "WAIT_UNTIL_7",
-            "false",
-        ).lower()
-        == "true"
+        os.environ.get("WAIT_UNTIL_7", "false").lower() == "true"
     )
 
     if not should_wait:
@@ -155,13 +138,10 @@ def wait_until_7_kst():
     )
 
     if now < target:
-        seconds = int(
-            (target - now).total_seconds()
-        )
+        seconds = int((target - now).total_seconds())
 
         print(
-            f"한국시간 오전 7시까지 "
-            f"{seconds}초 기다립니다."
+            f"한국시간 오전 7시까지 {seconds}초 기다립니다."
         )
 
         time.sleep(seconds)
@@ -173,9 +153,7 @@ def wait_until_7_kst():
 
 def parse_utc_time(value):
     if not value:
-        raise ValueError(
-            "경제일정 시간이 비어 있습니다."
-        )
+        raise ValueError("경제일정 시간이 비어 있습니다.")
 
     value = str(value).strip()
 
@@ -185,9 +163,7 @@ def parse_utc_time(value):
     parsed = datetime.fromisoformat(value)
 
     if parsed.tzinfo is None:
-        parsed = parsed.replace(
-            tzinfo=timezone.utc
-        )
+        parsed = parsed.replace(tzinfo=timezone.utc)
 
     return parsed.astimezone(KST)
 
@@ -196,24 +172,8 @@ def parse_utc_time(value):
 # Parse.bot 경제캘린더 가져오기
 # ─────────────────────────────────────
 
-def download_calendar(
-    target_date,
-    parse_api_key,
-):
-    """
-    Parse.bot에서 인베스팅 경제캘린더를 가져옵니다.
-
-    인베스팅 주요 24개 국가의
-    중요도 High 일정만 가져옵니다.
-
-    API 시간은 UTC이므로 한국시간 오전 일정을
-    빠뜨리지 않도록 전날부터 조회합니다.
-    """
-
-    start_date = (
-        target_date - timedelta(days=1)
-    )
-
+def download_calendar(target_date, parse_api_key):
+    start_date = target_date - timedelta(days=1)
     end_date = target_date
 
     params = {
@@ -222,8 +182,7 @@ def download_calendar(
         "domain_id": "18",
         "importance": "high",
         "country_ids": ",".join(
-            str(country_id)
-            for country_id in COUNTRY_IDS
+            str(country_id) for country_id in COUNTRY_IDS
         ),
     }
 
@@ -239,9 +198,7 @@ def download_calendar(
         headers={
             "X-API-Key": parse_api_key,
             "Accept": "application/json",
-            "User-Agent": (
-                "EconomicCalendarTelegramBot/1.0"
-            ),
+            "User-Agent": "EconomicCalendarTelegramBot/1.0",
         },
     )
 
@@ -250,32 +207,22 @@ def download_calendar(
             request,
             timeout=90,
         ) as response:
-            body = (
-                response
-                .read()
-                .decode("utf-8")
-            )
+            body = response.read().decode("utf-8")
 
     except urllib.error.HTTPError as error:
-        error_body = (
-            error
-            .read()
-            .decode(
-                "utf-8",
-                errors="replace",
-            )
+        error_body = error.read().decode(
+            "utf-8",
+            errors="replace",
         )
 
         raise RuntimeError(
             f"Parse.bot HTTP 오류: "
-            f"{error.code} "
-            f"{error_body[:300]}"
+            f"{error.code} {error_body[:300]}"
         ) from error
 
     except urllib.error.URLError as error:
         raise RuntimeError(
-            f"Parse.bot 접속 오류: "
-            f"{error.reason}"
+            f"Parse.bot 접속 오류: {error.reason}"
         ) from error
 
     try:
@@ -283,14 +230,12 @@ def download_calendar(
 
     except json.JSONDecodeError as error:
         raise RuntimeError(
-            "Parse.bot 응답이 올바른 "
-            "JSON 형식이 아닙니다."
+            "Parse.bot 응답이 올바른 JSON 형식이 아닙니다."
         ) from error
 
     if not isinstance(result, dict):
         raise RuntimeError(
-            "Parse.bot 응답 형식이 "
-            "예상과 다릅니다."
+            "Parse.bot 응답 형식이 예상과 다릅니다."
         )
 
     if result.get("status") != "success":
@@ -302,10 +247,7 @@ def download_calendar(
     payload = result.get("data", {})
 
     if isinstance(payload, dict):
-        raw_events = payload.get(
-            "data",
-            [],
-        )
+        raw_events = payload.get("data", [])
 
     elif isinstance(payload, list):
         raw_events = payload
@@ -315,8 +257,7 @@ def download_calendar(
 
     if not isinstance(raw_events, list):
         raise RuntimeError(
-            "Parse.bot 경제캘린더 데이터 "
-            "형식이 예상과 다릅니다."
+            "Parse.bot 경제캘린더 데이터 형식이 예상과 다릅니다."
         )
 
     selected_events = []
@@ -341,23 +282,12 @@ def download_calendar(
         except Exception:
             continue
 
-        if (
-            event_time_kst.date()
-            != target_date
-        ):
+        if event_time_kst.date() != target_date:
             continue
 
-        occurrence_id = event.get(
-            "occurrence_id"
-        )
-
-        event_id = event.get(
-            "event_id"
-        )
-
         duplicate_key = (
-            occurrence_id,
-            event_id,
+            event.get("occurrence_id"),
+            event.get("event_id"),
             event_time_kst.isoformat(),
         )
 
@@ -367,32 +297,20 @@ def download_calendar(
         seen.add(duplicate_key)
 
         copied_event = dict(event)
+        copied_event["_kst_time"] = event_time_kst
 
-        copied_event["_kst_time"] = (
-            event_time_kst
-        )
-
-        selected_events.append(
-            copied_event
-        )
+        selected_events.append(copied_event)
 
     selected_events.sort(
-        key=lambda item: (
-            item["_kst_time"],
-            int(
-                item.get("country_id")
-                or 0
-            ),
-            str(
-                item.get("event_name")
-                or ""
-            ),
+        key=lambda event: (
+            event["_kst_time"],
+            int(event.get("country_id") or 0),
+            str(event.get("event_name") or ""),
         )
     )
 
     print(
-        f"Parse.bot 원본 "
-        f"{len(raw_events)}건, "
+        f"Parse.bot 원본 {len(raw_events)}건, "
         f"한국시간 오늘 High 일정 "
         f"{len(selected_events)}건"
     )
@@ -405,17 +323,15 @@ def download_calendar(
 # ─────────────────────────────────────
 
 def make_header(target_date):
-    weekday = WEEKDAYS_KO[
-        target_date.weekday()
-    ]
+    weekday = WEEKDAYS_KO[target_date.weekday()]
 
     return (
-        "━━━━━━━━━━━━━━━━━━━━\n"
+        f"{DIVIDER}\n"
         f"📅 <b>{target_date.year}년 "
         f"{target_date.month}월 "
         f"{target_date.day}일 "
         f"{weekday}</b>\n"
-        "━━━━━━━━━━━━━━━━━━━━"
+        f"{DIVIDER}"
     )
 
 
@@ -424,27 +340,18 @@ def make_header(target_date):
 # ─────────────────────────────────────
 
 def make_event_block(event):
-    event_time = (
-        event["_kst_time"]
-        .strftime("%H:%M")
-    )
+    event_time = event["_kst_time"].strftime("%H:%M")
 
     country_id = int(
-        event.get("country_id")
-        or 0
+        event.get("country_id") or 0
     )
 
-    country_code, flag = (
-        COUNTRY_INFO.get(
-            country_id,
-            (
-                str(
-                    event.get("currency")
-                    or "??"
-                ),
-                "🌐",
-            ),
-        )
+    country_code, flag = COUNTRY_INFO.get(
+        country_id,
+        (
+            str(event.get("currency") or "??"),
+            "🌐",
+        ),
     )
 
     title = (
@@ -466,37 +373,18 @@ def make_event_block(event):
 
 # ─────────────────────────────────────
 # 텔레그램 전체 메시지 만들기
+# 하단 기준 및 링크는 표시하지 않음
 # ─────────────────────────────────────
 
-def make_messages(
-    target_date,
-    events,
-):
-    header = make_header(
-        target_date
-    )
-
-    footer = (
-        "━━━━━━━━━━━━━━━━━━━━\n"
-        "기준: 인베스팅 주요 24개국"
-        "·중요도 High\n"
-        f'🔗 <a href="'
-        f'{INVESTING_CALENDAR_URL}'
-        f'">인베스팅 경제캘린더</a>\n'
-        f'🔗 <a href="'
-        f'{HANKYUNG_CALENDAR_URL}'
-        f'">한경 경제캘린더</a>'
-    )
+def make_messages(target_date, events):
+    header = make_header(target_date)
 
     if not events:
         return [
             header
             + "\n\n"
-            + "오늘 예정된 "
-            + "<b>중요도 High</b> "
+            + "오늘 예정된 <b>중요도 High</b> "
             + "경제 이벤트가 없습니다."
-            + "\n\n"
-            + footer
         ]
 
     blocks = [
@@ -514,9 +402,7 @@ def make_messages(
             + block
         )
 
-        # Telegram 메시지 최대 길이는
-        # 4096자이므로 여유 있게 분할
-        if len(candidate) > 3500:
+        if len(candidate) > 3900:
             messages.append(current)
 
             current = (
@@ -528,24 +414,7 @@ def make_messages(
         else:
             current = candidate
 
-    if (
-        len(
-            current
-            + "\n\n"
-            + footer
-        )
-        <= 3900
-    ):
-        current += (
-            "\n\n"
-            + footer
-        )
-
-        messages.append(current)
-
-    else:
-        messages.append(current)
-        messages.append(footer)
+    messages.append(current)
 
     return messages
 
@@ -554,13 +423,9 @@ def make_messages(
 # 텔레그램 메시지 전송
 # ─────────────────────────────────────
 
-def telegram_send(
-    bot_token,
-    chat_id,
-    message,
-):
+def telegram_send(bot_token, chat_id, message):
     url = (
-        "https://api.telegram.org/"
+        f"https://api.telegram.org/"
         f"bot{bot_token}/sendMessage"
     )
 
@@ -573,14 +438,10 @@ def telegram_send(
 
     request = urllib.request.Request(
         url,
-        data=json.dumps(
-            payload
-        ).encode("utf-8"),
+        data=json.dumps(payload).encode("utf-8"),
         method="POST",
         headers={
-            "Content-Type": (
-                "application/json"
-            ),
+            "Content-Type": "application/json"
         },
     )
 
@@ -589,26 +450,17 @@ def telegram_send(
             request,
             timeout=30,
         ) as response:
-            body = (
-                response
-                .read()
-                .decode("utf-8")
-            )
+            body = response.read().decode("utf-8")
 
     except urllib.error.HTTPError as error:
-        error_body = (
-            error
-            .read()
-            .decode(
-                "utf-8",
-                errors="replace",
-            )
+        error_body = error.read().decode(
+            "utf-8",
+            errors="replace",
         )
 
         raise RuntimeError(
             f"텔레그램 HTTP 오류: "
-            f"{error.code} "
-            f"{error_body[:300]}"
+            f"{error.code} {error_body[:300]}"
         ) from error
 
     try:
@@ -616,8 +468,7 @@ def telegram_send(
 
     except json.JSONDecodeError as error:
         raise RuntimeError(
-            "텔레그램 응답이 올바른 "
-            "JSON 형식이 아닙니다."
+            "텔레그램 응답이 올바른 JSON 형식이 아닙니다."
         ) from error
 
     if not result.get("ok"):
@@ -641,10 +492,8 @@ def send_error_message(
     )
 
     message = (
-        "⚠️ <b>경제캘린더 알림 오류</b>"
-        "\n\n"
-        f"{safe_error}"
-        "\n\n"
+        "⚠️ <b>경제캘린더 알림 오류</b>\n\n"
+        f"{safe_error}\n\n"
         "오늘 일정이 없다는 뜻이 아니라, "
         "데이터를 가져오지 못했다는 뜻입니다."
     )
@@ -676,9 +525,7 @@ def main():
     try:
         wait_until_7_kst()
 
-        target_date = (
-            datetime.now(KST).date()
-        )
+        target_date = datetime.now(KST).date()
 
         events = download_calendar(
             target_date=target_date,
@@ -701,14 +548,11 @@ def main():
 
         print(
             f"{target_date.isoformat()} "
-            f"경제캘린더 "
-            f"{len(events)}건 전송 완료"
+            f"경제캘린더 {len(events)}건 전송 완료"
         )
 
     except Exception as error:
-        print(
-            f"오류 발생: {error}"
-        )
+        print(f"오류 발생: {error}")
 
         try:
             send_error_message(
@@ -720,7 +564,7 @@ def main():
         except Exception as telegram_error:
             print(
                 "오류 메시지 전송도 실패: "
-                f"{telegram_error}"
+                + str(telegram_error)
             )
 
         raise
