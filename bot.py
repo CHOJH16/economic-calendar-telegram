@@ -1,405 +1,375 @@
 import html
 import json
 import os
-import re
-import sys
 import time
+import urllib.error
 import urllib.parse
 import urllib.request
 from datetime import datetime, time as dt_time, timedelta, timezone
 from zoneinfo import ZoneInfo
 
-from bs4 import BeautifulSoup
-from curl_cffi import requests
-
 
 KST = ZoneInfo("Asia/Seoul")
 
-# 인베스팅 경제 캘린더의 주요 24개국
-COUNTRIES = {
-    25: ("AU", "🇦🇺"),
-    32: ("BR", "🇧🇷"),
-    6: ("CA", "🇨🇦"),
-    37: ("CN", "🇨🇳"),
-    72: ("EU", "🇪🇺"),
-    22: ("FR", "🇫🇷"),
-    17: ("DE", "🇩🇪"),
-    39: ("HK", "🇭🇰"),
-    14: ("IN", "🇮🇳"),
-    48: ("ID", "🇮🇩"),
-    10: ("IT", "🇮🇹"),
-    35: ("JP", "🇯🇵"),
-    11: ("KR", "🇰🇷"),
-    7: ("MX", "🇲🇽"),
-    43: ("NZ", "🇳🇿"),
-    38: ("PT", "🇵🇹"),
-    56: ("RU", "🇷🇺"),
-    36: ("SG", "🇸🇬"),
-    110: ("ZA", "🇿🇦"),
-    26: ("ES", "🇪🇸"),
-    12: ("CH", "🇨🇭"),
-    63: ("TR", "🇹🇷"),
-    4: ("UK", "🇬🇧"),
-    5: ("US", "🇺🇸"),
-}
+WEEKDAYS = [
+    "월요일",
+    "화요일",
+    "수요일",
+    "목요일",
+    "금요일",
+    "토요일",
+    "일요일",
+]
 
-COUNTRY_NAME_MAP = {
-    "호주": ("AU", "🇦🇺"),
-    "브라질": ("BR", "🇧🇷"),
-    "캐나다": ("CA", "🇨🇦"),
-    "중국": ("CN", "🇨🇳"),
-    "유로존": ("EU", "🇪🇺"),
-    "프랑스": ("FR", "🇫🇷"),
-    "독일": ("DE", "🇩🇪"),
-    "홍콩": ("HK", "🇭🇰"),
-    "인도": ("IN", "🇮🇳"),
-    "인도네시아": ("ID", "🇮🇩"),
-    "이탈리아": ("IT", "🇮🇹"),
-    "일본": ("JP", "🇯🇵"),
-    "대한민국": ("KR", "🇰🇷"),
-    "한국": ("KR", "🇰🇷"),
-    "멕시코": ("MX", "🇲🇽"),
-    "뉴질랜드": ("NZ", "🇳🇿"),
-    "포르투갈": ("PT", "🇵🇹"),
-    "러시아": ("RU", "🇷🇺"),
-    "싱가포르": ("SG", "🇸🇬"),
-    "남아프리카 공화국": ("ZA", "🇿🇦"),
-    "스페인": ("ES", "🇪🇸"),
-    "스위스": ("CH", "🇨🇭"),
-    "튀르키예": ("TR", "🇹🇷"),
-    "터키": ("TR", "🇹🇷"),
-    "영국": ("UK", "🇬🇧"),
-    "미국": ("US", "🇺🇸"),
-}
+# 주요 24개국 및 지역
+COUNTRY_ALIASES = {
+    # 호주
+    "AU": ("AU", "🇦🇺"),
+    "AUS": ("AU", "🇦🇺"),
+    "AUSTRALIA": ("AU", "🇦🇺"),
 
-CURRENCY_MAP = {
-    "AUD": ("AU", "🇦🇺"),
-    "BRL": ("BR", "🇧🇷"),
-    "CAD": ("CA", "🇨🇦"),
-    "CNY": ("CN", "🇨🇳"),
-    "EUR": ("EU", "🇪🇺"),
-    "HKD": ("HK", "🇭🇰"),
-    "INR": ("IN", "🇮🇳"),
-    "IDR": ("ID", "🇮🇩"),
-    "JPY": ("JP", "🇯🇵"),
-    "KRW": ("KR", "🇰🇷"),
-    "MXN": ("MX", "🇲🇽"),
-    "NZD": ("NZ", "🇳🇿"),
-    "RUB": ("RU", "🇷🇺"),
-    "SGD": ("SG", "🇸🇬"),
-    "ZAR": ("ZA", "🇿🇦"),
-    "CHF": ("CH", "🇨🇭"),
-    "TRY": ("TR", "🇹🇷"),
-    "GBP": ("UK", "🇬🇧"),
-    "USD": ("US", "🇺🇸"),
-}
+    # 브라질
+    "BR": ("BR", "🇧🇷"),
+    "BRA": ("BR", "🇧🇷"),
+    "BRAZIL": ("BR", "🇧🇷"),
 
-WEEKDAYS = ["월요일", "화요일", "수요일", "목요일", "금요일", "토요일", "일요일"]
+    # 캐나다
+    "CA": ("CA", "🇨🇦"),
+    "CAN": ("CA", "🇨🇦"),
+    "CANADA": ("CA", "🇨🇦"),
+
+    # 중국
+    "CN": ("CN", "🇨🇳"),
+    "CHN": ("CN", "🇨🇳"),
+    "CHINA": ("CN", "🇨🇳"),
+
+    # 유로존
+    "EU": ("EU", "🇪🇺"),
+    "EMU": ("EU", "🇪🇺"),
+    "EURO ZONE": ("EU", "🇪🇺"),
+    "EUROZONE": ("EU", "🇪🇺"),
+    "EURO AREA": ("EU", "🇪🇺"),
+    "EUROPEAN UNION": ("EU", "🇪🇺"),
+
+    # 프랑스
+    "FR": ("FR", "🇫🇷"),
+    "FRA": ("FR", "🇫🇷"),
+    "FRANCE": ("FR", "🇫🇷"),
+
+    # 독일
+    "DE": ("DE", "🇩🇪"),
+    "DEU": ("DE", "🇩🇪"),
+    "GERMANY": ("DE", "🇩🇪"),
+
+    # 홍콩
+    "HK": ("HK", "🇭🇰"),
+    "HKG": ("HK", "🇭🇰"),
+    "HONG KONG": ("HK", "🇭🇰"),
+
+    # 인도
+    "IN": ("IN", "🇮🇳"),
+    "IND": ("IN", "🇮🇳"),
+    "INDIA": ("IN", "🇮🇳"),
+
+    # 인도네시아
+    "ID": ("ID", "🇮🇩"),
+    "IDN": ("ID", "🇮🇩"),
+    "INDONESIA": ("ID", "🇮🇩"),
+
+    # 이탈리아
+    "IT": ("IT", "🇮🇹"),
+    "ITA": ("IT", "🇮🇹"),
+    "ITALY": ("IT", "🇮🇹"),
+
+    # 일본
+    "JP": ("JP", "🇯🇵"),
+    "JPN": ("JP", "🇯🇵"),
+    "JAPAN": ("JP", "🇯🇵"),
+
+    # 한국
+    "KR": ("KR", "🇰🇷"),
+    "KOR": ("KR", "🇰🇷"),
+    "SOUTH KOREA": ("KR", "🇰🇷"),
+    "KOREA": ("KR", "🇰🇷"),
+    "REPUBLIC OF KOREA": ("KR", "🇰🇷"),
+
+    # 멕시코
+    "MX": ("MX", "🇲🇽"),
+    "MEX": ("MX", "🇲🇽"),
+    "MEXICO": ("MX", "🇲🇽"),
+
+    # 뉴질랜드
+    "NZ": ("NZ", "🇳🇿"),
+    "NZL": ("NZ", "🇳🇿"),
+    "NEW ZEALAND": ("NZ", "🇳🇿"),
+
+    # 포르투갈
+    "PT": ("PT", "🇵🇹"),
+    "PRT": ("PT", "🇵🇹"),
+    "PORTUGAL": ("PT", "🇵🇹"),
+
+    # 러시아
+    "RU": ("RU", "🇷🇺"),
+    "RUS": ("RU", "🇷🇺"),
+    "RUSSIA": ("RU", "🇷🇺"),
+
+    # 싱가포르
+    "SG": ("SG", "🇸🇬"),
+    "SGP": ("SG", "🇸🇬"),
+    "SINGAPORE": ("SG", "🇸🇬"),
+
+    # 남아프리카공화국
+    "ZA": ("ZA", "🇿🇦"),
+    "ZAF": ("ZA", "🇿🇦"),
+    "SOUTH AFRICA": ("ZA", "🇿🇦"),
+
+    # 스페인
+    "ES": ("ES", "🇪🇸"),
+    "ESP": ("ES", "🇪🇸"),
+    "SPAIN": ("ES", "🇪🇸"),
+
+    # 스위스
+    "CH": ("CH", "🇨🇭"),
+    "CHE": ("CH", "🇨🇭"),
+    "SWITZERLAND": ("CH", "🇨🇭"),
+
+    # 튀르키예
+    "TR": ("TR", "🇹🇷"),
+    "TUR": ("TR", "🇹🇷"),
+    "TURKEY": ("TR", "🇹🇷"),
+    "TÜRKIYE": ("TR", "🇹🇷"),
+    "TURKIYE": ("TR", "🇹🇷"),
+
+    # 영국
+    "UK": ("UK", "🇬🇧"),
+    "GB": ("UK", "🇬🇧"),
+    "GBR": ("UK", "🇬🇧"),
+    "UNITED KINGDOM": ("UK", "🇬🇧"),
+    "GREAT BRITAIN": ("UK", "🇬🇧"),
+
+    # 미국
+    "US": ("US", "🇺🇸"),
+    "USA": ("US", "🇺🇸"),
+    "UNITED STATES": ("US", "🇺🇸"),
+    "UNITED STATES OF AMERICA": ("US", "🇺🇸"),
+}
 
 
 def clean_text(value):
     if value is None:
         return "-"
+
     text = str(value).replace("\xa0", " ").strip()
-    return text if text else "-"
 
-
-def get_session():
-    session = requests.Session(impersonate="chrome")
-    session.headers.update(
-        {
-            "Accept-Language": "ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7",
-            "User-Agent": (
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                "AppleWebKit/537.36 (KHTML, like Gecko) "
-                "Chrome/136.0.0.0 Safari/537.36"
-            ),
-        }
-    )
-    return session
-
-
-def extract_access_token(page_text):
-    patterns = [
-        r'"accessToken"\s*:\s*"([^"]+)"',
-        r'\\"accessToken\\"\s*:\s*\\"([^"\\]+)',
-        r'accessToken[\'"]?\s*[:=]\s*[\'"]([^\'"]+)',
-    ]
-
-    for pattern in patterns:
-        match = re.search(pattern, page_text)
-        if match:
-            return match.group(1)
-
-    return None
-
-
-def format_api_value(occurrence, key):
-    if key not in occurrence or occurrence.get(key) is None:
+    if not text or text.lower() in {"none", "null", "nan", "n/a"}:
         return "-"
 
-    value = occurrence.get(key)
-    unit = clean_text(occurrence.get("unit"))
-    if unit == "-":
-        unit = ""
+    return text
+
+
+def format_number(value):
+    if value is None:
+        return "-"
+
+    if isinstance(value, bool):
+        return str(value)
+
+    if isinstance(value, int):
+        return str(value)
+
+    if isinstance(value, float):
+        if value.is_integer():
+            return str(int(value))
+
+        return f"{value:.6f}".rstrip("0").rstrip(".")
+
+    return clean_text(value)
+
+
+def format_value(value, unit):
+    result = format_number(value)
+
+    if result == "-":
+        return "-"
+
+    unit_text = clean_text(unit)
+
+    if unit_text == "-":
+        return result
+
+    # 값 자체에 단위가 이미 들어간 경우
+    if unit_text in result:
+        return result
+
+    if unit_text in {"%", "K", "M", "B"}:
+        return f"{result}{unit_text}"
+
+    return f"{result} {unit_text}"
+
+
+def parse_fmp_datetime(value):
+    text = clean_text(value)
+
+    if text == "-":
+        raise ValueError("이벤트 시간이 없습니다.")
+
+    text = text.replace("Z", "+00:00")
 
     try:
-        number = float(value)
-        precision = int(occurrence.get("precision", 0))
+        parsed = datetime.fromisoformat(text)
+    except ValueError:
+        parsed = datetime.strptime(text[:19], "%Y-%m-%d %H:%M:%S")
 
-        if precision > 0:
-            result = f"{number:.{precision}f}"
-        elif number.is_integer():
-            result = str(int(number))
-        else:
-            result = str(number)
+    # FMP 경제 캘린더 시간은 UTC 기준
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
 
-        return f"{result}{unit}"
-    except (TypeError, ValueError):
-        return f"{value}{unit}"
+    return parsed.astimezone(KST)
 
 
-def fetch_modern_api(target_date):
-    session = get_session()
+def get_country(country_value):
+    country_text = clean_text(country_value).upper()
 
-    page = session.get(
-        "https://kr.investing.com/economic-calendar/",
-        timeout=40,
+    return COUNTRY_ALIASES.get(country_text)
+
+
+def download_fmp_calendar(target_date):
+    api_key = os.environ.get("FMP_API_KEY", "").strip()
+
+    if not api_key:
+        raise RuntimeError("FMP_API_KEY가 GitHub Secrets에 없습니다.")
+
+    # 한국시간 하루는 UTC 기준 전날 15시부터 당일 15시 전까지이므로
+    # 날짜 경계 누락 방지를 위해 전날부터 다음 날까지 넓게 조회합니다.
+    from_date = target_date - timedelta(days=1)
+    to_date = target_date + timedelta(days=1)
+
+    query = urllib.parse.urlencode(
+        {
+            "from": from_date.isoformat(),
+            "to": to_date.isoformat(),
+            "apikey": api_key,
+        }
     )
-    page.raise_for_status()
 
-    token = extract_access_token(page.text)
-    if not token:
-        raise RuntimeError("인베스팅 페이지에서 접근 토큰을 찾지 못했습니다.")
-
-    start_kst = datetime.combine(target_date, dt_time.min, tzinfo=KST)
-    end_kst = datetime.combine(target_date, dt_time.max, tzinfo=KST)
-
-    start_utc = start_kst.astimezone(timezone.utc)
-    end_utc = end_kst.astimezone(timezone.utc)
-
-    params = {
-        "domain_id": 18,
-        "limit": 500,
-        "start_date": start_utc.strftime("%Y-%m-%dT%H:%M:%S.000Z"),
-        "end_date": end_utc.strftime("%Y-%m-%dT%H:%M:%S.999Z"),
-        "importance": "high",
-        "country_ids": ",".join(str(x) for x in COUNTRIES.keys()),
-    }
-
-    headers = {
-        "Authorization": f"Bearer {token}",
-        "Origin": "https://kr.investing.com",
-        "Referer": "https://kr.investing.com/economic-calendar/",
-        "Accept": "application/json",
-    }
-
-    response = session.get(
-        "https://endpoints.investing.com/"
-        "pd-instruments/v1/calendars/economic/events/occurrences",
-        params=params,
-        headers=headers,
-        timeout=40,
+    url = (
+        "https://financialmodelingprep.com/stable/economic-calendar?"
+        + query
     )
-    response.raise_for_status()
 
-    data = response.json()
-    events_by_id = {
-        event.get("event_id"): event for event in data.get("events", [])
-    }
+    request = urllib.request.Request(
+        url,
+        headers={
+            "Accept": "application/json",
+            "User-Agent": "EconomicCalendarTelegramBot/1.0",
+        },
+    )
 
-    results = []
+    with urllib.request.urlopen(request, timeout=45) as response:
+        body = response.read().decode("utf-8")
 
-    for occurrence in data.get("occurrences", []):
-        event = events_by_id.get(occurrence.get("event_id"))
-        if not event:
-            continue
+    data = json.loads(body)
 
-        if str(event.get("importance", "")).lower() != "high":
-            continue
-
-        country_id = event.get("country_id")
-        if country_id not in COUNTRIES:
-            continue
-
-        raw_time = occurrence.get("occurrence_time")
-        if not raw_time:
-            continue
-
-        event_time = datetime.fromisoformat(raw_time.replace("Z", "+00:00"))
-        event_time_kst = event_time.astimezone(KST)
-
-        if event_time_kst.date() != target_date:
-            continue
-
-        country_code, flag = COUNTRIES[country_id]
-
-        title = (
-            event.get("event_translated")
-            or event.get("short_name")
-            or event.get("long_name")
-            or "이름 없는 일정"
+    if isinstance(data, dict):
+        error_message = (
+            data.get("Error Message")
+            or data.get("error")
+            or data.get("message")
         )
 
-        reference_period = clean_text(occurrence.get("reference_period"))
-        if reference_period != "-" and reference_period not in title:
-            title = f"{title} ({reference_period})"
+        if error_message:
+            raise RuntimeError(f"FMP 응답 오류: {error_message}")
 
-        results.append(
+        # 일부 응답 형식은 결과가 배열 안에 들어갑니다.
+        data = (
+            data.get("economicCalendar")
+            or data.get("data")
+            or data.get("results")
+            or []
+        )
+
+    if not isinstance(data, list):
+        raise RuntimeError("FMP 경제 캘린더 응답 형식을 확인할 수 없습니다.")
+
+    return data
+
+
+def fetch_events_once(target_date):
+    raw_events = download_fmp_calendar(target_date)
+    events = []
+
+    for item in raw_events:
+        if not isinstance(item, dict):
+            continue
+
+        impact = clean_text(item.get("impact")).lower()
+
+        # 중요도 높음만 허용
+        if impact != "high":
+            continue
+
+        country_info = get_country(item.get("country"))
+
+        # 주요 24개국 이외의 국가는 제외
+        if not country_info:
+            continue
+
+        country_code, flag = country_info
+
+        raw_time = item.get("date") or item.get("time")
+
+        try:
+            event_time = parse_fmp_datetime(raw_time)
+        except Exception:
+            continue
+
+        # 한국시간 기준 오늘 일정만 허용
+        if event_time.date() != target_date:
+            continue
+
+        title = (
+            item.get("event")
+            or item.get("name")
+            or item.get("title")
+            or "이름 없는 경제 이벤트"
+        )
+
+        unit = item.get("unit")
+
+        actual = format_value(
+            item.get("actual"),
+            unit,
+        )
+
+        forecast = format_value(
+            item.get("estimate")
+            if item.get("estimate") is not None
+            else item.get("forecast"),
+            unit,
+        )
+
+        previous = format_value(
+            item.get("previous")
+            if item.get("previous") is not None
+            else item.get("prev"),
+            unit,
+        )
+
+        events.append(
             {
-                "sort_time": event_time_kst,
-                "time": event_time_kst.strftime("%H:%M"),
+                "sort_time": event_time,
+                "time": event_time.strftime("%H:%M"),
                 "country": country_code,
                 "flag": flag,
                 "title": clean_text(title),
-                "actual": format_api_value(occurrence, "actual"),
-                "forecast": format_api_value(occurrence, "forecast"),
-                "previous": format_api_value(occurrence, "previous"),
+                "actual": actual,
+                "forecast": forecast,
+                "previous": previous,
             }
         )
 
-    results.sort(key=lambda item: item["sort_time"])
-    return results
-
-
-def country_from_legacy(row, currency):
-    country_id = (
-        row.get("data-country")
-        or row.get("data-country-id")
-        or row.get("data-country_id")
-    )
-
-    try:
-        country_id = int(country_id)
-        if country_id in COUNTRIES:
-            return COUNTRIES[country_id]
-    except (TypeError, ValueError):
-        pass
-
-    flag_element = row.select_one("[title]")
-    if flag_element:
-        country_name = clean_text(flag_element.get("title"))
-        if country_name in COUNTRY_NAME_MAP:
-            return COUNTRY_NAME_MAP[country_name]
-
-    return CURRENCY_MAP.get(currency, (currency[:2] or "--", "🌐"))
-
-
-def fetch_legacy_api(target_date):
-    session = get_session()
-    calendar_url = "https://kr.investing.com/economic-calendar/"
-
-    page = session.get(calendar_url, timeout=40)
-    page.raise_for_status()
-
-    payload = [
-        ("dateFrom", target_date.strftime("%m/%d/%Y")),
-        ("dateTo", target_date.strftime("%m/%d/%Y")),
-        ("timeZone", "88"),
-        ("timeFilter", "timeOnly"),
-        ("currentTab", "custom"),
-        ("submitFilters", "1"),
-        ("limit_from", "0"),
-        ("importance[]", "3"),
-    ]
-
-    for country_id in COUNTRIES:
-        payload.append(("country[]", str(country_id)))
-
-    response = session.post(
-        "https://kr.investing.com/economic-calendar/"
-        "Service/getCalendarFilteredData",
-        data=payload,
-        headers={
-            "Referer": calendar_url,
-            "Origin": "https://kr.investing.com",
-            "X-Requested-With": "XMLHttpRequest",
-            "Accept": "application/json, text/javascript, */*; q=0.01",
-        },
-        timeout=40,
-    )
-    response.raise_for_status()
-
-    data = response.json()
-    table_html = data.get("data")
-
-    if not table_html:
-        raise RuntimeError("구형 캘린더 응답에 일정 데이터가 없습니다.")
-
-    soup = BeautifulSoup(table_html, "html.parser")
-    results = []
-
-    for row in soup.select("tr.js-event-item"):
-        importance_count = len(
-            row.select(
-                ".grayFullBullishIcon, "
-                ".fullBullishIcon, "
-                "[class*='FullBullishIcon']"
-            )
-        )
-
-        if importance_count and importance_count < 3:
-            continue
-
-        time_cell = row.select_one("td.time")
-        event_cell = row.select_one("td.event")
-        actual_cell = row.select_one("td.act")
-        forecast_cell = row.select_one("td.fore")
-        previous_cell = row.select_one("td.prev")
-        currency_cell = row.select_one("td.flagCur")
-
-        event_time_text = (
-            clean_text(time_cell.get_text(" ", strip=True))
-            if time_cell
-            else "-"
-        )
-        title = (
-            clean_text(event_cell.get_text(" ", strip=True))
-            if event_cell
-            else "이름 없는 일정"
-        )
-        currency = (
-            clean_text(currency_cell.get_text(" ", strip=True))
-            if currency_cell
-            else "--"
-        )
-
-        country_code, flag = country_from_legacy(row, currency)
-
-        sort_hour = 99
-        sort_minute = 99
-        match = re.search(r"(\d{1,2}):(\d{2})", event_time_text)
-        if match:
-            sort_hour = int(match.group(1))
-            sort_minute = int(match.group(2))
-
-        results.append(
-            {
-                "sort_time": (sort_hour, sort_minute),
-                "time": event_time_text,
-                "country": country_code,
-                "flag": flag,
-                "title": title,
-                "actual": (
-                    clean_text(actual_cell.get_text(" ", strip=True))
-                    if actual_cell
-                    else "-"
-                ),
-                "forecast": (
-                    clean_text(forecast_cell.get_text(" ", strip=True))
-                    if forecast_cell
-                    else "-"
-                ),
-                "previous": (
-                    clean_text(previous_cell.get_text(" ", strip=True))
-                    if previous_cell
-                    else "-"
-                ),
-            }
-        )
-
-    results.sort(key=lambda item: item["sort_time"])
-    return results
+    events.sort(key=lambda event: event["sort_time"])
+    return events
 
 
 def fetch_events_with_retry(target_date):
@@ -407,46 +377,41 @@ def fetch_events_with_retry(target_date):
 
     for attempt in range(1, 4):
         try:
-            events = fetch_modern_api(target_date)
-            return events, "modern"
+            return fetch_events_once(target_date)
         except Exception as exc:
-            errors.append(f"현행 API {attempt}차: {exc}")
+            errors.append(f"{attempt}차: {exc}")
 
-        try:
-            events = fetch_legacy_api(target_date)
-            return events, "legacy"
-        except Exception as exc:
-            errors.append(f"구형 API {attempt}차: {exc}")
+            if attempt < 3:
+                time.sleep(attempt * 20)
 
-        if attempt < 3:
-            time.sleep(attempt * 20)
-
-    raise RuntimeError("\n".join(errors[-6:]))
+    raise RuntimeError("\n".join(errors))
 
 
-def format_message(target_date, events):
+def make_messages(target_date, events):
     weekday = WEEKDAYS[target_date.weekday()]
 
     header = (
-        f"━━━━━━━━━━━━━━━━━━━━\n"
+        "━━━━━━━━━━━━━━━━━━━━\n"
         f"<b>📅 {target_date.year}년 {target_date.month}월 "
         f"{target_date.day}일 {weekday}</b>\n"
-        f"━━━━━━━━━━━━━━━━━━━━"
+        "━━━━━━━━━━━━━━━━━━━━"
     )
 
     if not events:
         return [
             header
             + "\n\n"
-            + "오늘 예정된 <b>중요도 높음(★★★)</b> 경제 이벤트가 없습니다."
+            + "오늘 예정된 <b>중요도 높음(★★★)</b> "
+            + "경제 이벤트가 없습니다.\n\n"
+            + "<i>자료: Financial Modeling Prep</i>"
         ]
 
     blocks = []
 
     for event in events:
-        title = html.escape(event["title"])
         event_time = html.escape(event["time"])
         country = html.escape(event["country"])
+        title = html.escape(event["title"])
         actual = html.escape(event["actual"])
         forecast = html.escape(event["forecast"])
         previous = html.escape(event["previous"])
@@ -454,8 +419,11 @@ def format_message(target_date, events):
         block = (
             f"<b>{event_time}　{country} {event['flag']}</b>\n"
             f"★★★　│　<b>{title}</b>\n"
-            f"실제: <b>{actual}</b>　 예측: {forecast}　 이전: {previous}"
+            f"실제: <b>{actual}</b>　"
+            f"예측: {forecast}　"
+            f"이전: {previous}"
         )
+
         blocks.append(block)
 
     messages = []
@@ -464,43 +432,54 @@ def format_message(target_date, events):
     for block in blocks:
         candidate = current + "\n\n" + block
 
-        if len(candidate) > 3800:
-            messages.append(current)
+        # 텔레그램 메시지 길이 제한 대비
+        if len(candidate) > 3700:
+            messages.append(
+                current
+                + "\n\n<i>자료: Financial Modeling Prep</i>"
+            )
+
             current = (
-                f"<b>📅 {target_date.year}년 {target_date.month}월 "
-                f"{target_date.day}일 일정 계속</b>\n\n{block}"
+                f"<b>📅 {target_date.year}년 "
+                f"{target_date.month}월 {target_date.day}일 "
+                f"일정 계속</b>\n\n{block}"
             )
         else:
             current = candidate
 
     if current:
+        current += "\n\n<i>자료: Financial Modeling Prep</i>"
         messages.append(current)
 
     return messages
 
 
-def telegram_send(text):
-    token = os.environ.get("TELEGRAM_BOT_TOKEN", "").strip()
+def telegram_send(message):
+    bot_token = os.environ.get("TELEGRAM_BOT_TOKEN", "").strip()
     chat_id = os.environ.get("TELEGRAM_CHAT_ID", "").strip()
 
-    if not token:
-        raise RuntimeError("TELEGRAM_BOT_TOKEN이 설정되지 않았습니다.")
+    if not bot_token:
+        raise RuntimeError("TELEGRAM_BOT_TOKEN이 없습니다.")
 
     if not chat_id:
-        raise RuntimeError("TELEGRAM_CHAT_ID가 설정되지 않았습니다.")
+        raise RuntimeError("TELEGRAM_CHAT_ID가 없습니다.")
 
-    url = f"https://api.telegram.org/bot{token}/sendMessage"
+    url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
 
     payload = urllib.parse.urlencode(
         {
             "chat_id": chat_id,
-            "text": text,
+            "text": message,
             "parse_mode": "HTML",
             "disable_web_page_preview": "true",
         }
     ).encode("utf-8")
 
-    request = urllib.request.Request(url, data=payload, method="POST")
+    request = urllib.request.Request(
+        url,
+        data=payload,
+        method="POST",
+    )
 
     with urllib.request.urlopen(request, timeout=30) as response:
         result = json.loads(response.read().decode("utf-8"))
@@ -509,52 +488,60 @@ def telegram_send(text):
         raise RuntimeError(f"텔레그램 전송 실패: {result}")
 
 
-def wait_until_7_if_needed():
-    should_wait = os.environ.get("WAIT_UNTIL_7", "false").lower() == "true"
+def wait_until_7():
+    should_wait = (
+        os.environ.get("WAIT_UNTIL_7", "false").strip().lower()
+        == "true"
+    )
 
+    # 수동 테스트 실행은 기다리지 않음
     if not should_wait:
         return
 
     now = datetime.now(KST)
-    target = datetime.combine(now.date(), dt_time(7, 0), tzinfo=KST)
+    target = datetime.combine(
+        now.date(),
+        dt_time(7, 0),
+        tzinfo=KST,
+    )
 
     if now < target:
         seconds = (target - now).total_seconds()
-        print(f"오전 7시까지 {int(seconds)}초 기다립니다.")
+        print(f"한국시간 오전 7시까지 {int(seconds)}초 기다립니다.")
         time.sleep(seconds)
 
 
 def main():
-    wait_until_7_if_needed()
+    wait_until_7()
 
-    now = datetime.now(KST)
-    target_date = now.date()
+    target_date = datetime.now(KST).date()
 
     try:
-        events, source = fetch_events_with_retry(target_date)
-        print(f"데이터 수집 방식: {source}")
-        print(f"수집된 중요 이벤트 수: {len(events)}")
+        events = fetch_events_with_retry(target_date)
 
-        messages = format_message(target_date, events)
+        print(f"중요도 High 이벤트 수: {len(events)}")
+
+        messages = make_messages(target_date, events)
 
         for message in messages:
             telegram_send(message)
             time.sleep(1)
 
-        print("텔레그램 전송 완료")
+        print("텔레그램 경제 캘린더 전송 완료")
 
     except Exception as exc:
-        error_text = html.escape(str(exc))[:3000]
+        print(f"경제 캘린더 실행 실패: {exc}")
+
+        safe_error = html.escape(str(exc))[:2500]
 
         try:
             telegram_send(
-                "⚠️ <b>경제 캘린더 수집 실패</b>\n\n"
-                f"{error_text}\n\n"
-                "인베스팅 사이트 차단 또는 구조 변경 가능성이 있습니다. "
+                "⚠️ <b>경제 캘린더 실행 실패</b>\n\n"
+                f"{safe_error}\n\n"
                 "GitHub Actions 실행 기록을 확인해주세요."
             )
-        except Exception as telegram_exc:
-            print(f"오류 알림 전송도 실패했습니다: {telegram_exc}")
+        except Exception as telegram_error:
+            print(f"오류 알림 전송 실패: {telegram_error}")
 
         raise
 
