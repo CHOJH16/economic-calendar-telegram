@@ -2,12 +2,8 @@ name: 매일 경제 캘린더 알림
 
 on:
   schedule:
-    # 한국시간 오전 6시 55분에 실행을 시작하고
-    # 프로그램이 오전 7시까지 기다렸다가 전송합니다.
     - cron: "55 6 * * *"
       timezone: "Asia/Seoul"
-
-  # Actions 화면에서 직접 테스트하기 위한 버튼
   workflow_dispatch:
 
 permissions:
@@ -23,10 +19,10 @@ jobs:
     timeout-minutes: 25
 
     steps:
-      - name: 저장소 코드 가져오기
+      - name: 저장소 파일 가져오기
         uses: actions/checkout@v4
 
-      - name: 파이썬 설치
+      - name: Python 설치
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
@@ -35,6 +31,7 @@ jobs:
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          PARSE_API_KEY: ${{ secrets.PARSE_API_KEY }}
           WAIT_UNTIL_7: ${{ github.event_name == 'schedule' }}
         run: python bot.py
 
