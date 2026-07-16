@@ -1,0 +1,53 @@
+name: 매일 경제 캘린더 알림
+
+on:
+  schedule:
+    # 매일 한국시간 오전 6시 55분에 시작합니다.
+    # 프로그램이 오전 7시까지 기다린 후 전송합니다.
+    - cron: "55 6 * * *"
+      timezone: "Asia/Seoul"
+
+  # Actions 화면에서 직접 테스트할 수 있게 만드는 버튼입니다.
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: daily-economic-calendar
+  cancel-in-progress: false
+
+jobs:
+  send-calendar:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    steps:
+      - name: 저장소 코드 가져오기
+        uses: actions/checkout@v4
+
+      - name: 파이썬 설치
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: 필요한 프로그램 설치
+        run: pip install -r requirements.txt
+
+      - name: 텔레그램 경제 캘린더 전송
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          WAIT_UNTIL_7: ${{ github.event_name == 'schedule' }}
+        run: python bot.py
+
+      - name: 장기 미사용 중지 방지용 기록
+        if: always()
+        run: |
+          date -u +"%Y-%m-%dT%H:%M:%SZ" > .heartbeat
+          git config user.name "economic-calendar-bot"
+          git config user.email "economic-calendar-bot@users.noreply.github.com"
+          git add .heartbeat
+          git diff --cached --quiet || git commit -m "자동 실행 상태 기록"
+          git push
