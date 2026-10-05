@@ -170,15 +170,17 @@ def parse_utc_time(value):
 
 # ─────────────────────────────────────
 # Parse.bot 경제캘린더 가져오기
+# (금일 00:00 ~ 익일 12:00 범위)
 # ─────────────────────────────────────
 
-def download_calendar(target_date, parse_api_key):
-    start_date = target_date - timedelta(days=1)
-    end_date = target_date
+def download_calendar(today, tomorrow, parse_api_key):
+    # 시차(KST/UTC)를 고려하여 API에는 하루 전부터 내일 다음날까지 넉넉하게 요청
+    api_start = today - timedelta(days=1)
+    api_end = tomorrow + timedelta(days=1)
 
     params = {
-        "start_date": start_date.isoformat(),
-        "end_date": end_date.isoformat(),
+        "start_date": api_start.isoformat(),
+        "end_date": api_end.isoformat(),
         "domain_id": "18",
         "importance": "high",
         "country_ids": ",".join(
@@ -260,6 +262,14 @@ def download_calendar(target_date, parse_api_key):
             "Parse.bot 경제캘린더 데이터 형식이 예상과 다릅니다."
         )
 
+    # 필터링 기준 시각 (금일 00:00:00 ~ 익일 12:00:00 KST)
+    start_cutoff = datetime(
+        today.year, today.month, today.day, 0, 0, 0, tzinfo=KST
+    )
+    end_cutoff = datetime(
+        tomorrow.year, tomorrow.month, tomorrow.day, 12, 0, 0, tzinfo=KST
+    )
+
     selected_events = []
     seen = set()
 
@@ -282,7 +292,8 @@ def download_calendar(target_date, parse_api_key):
         except Exception:
             continue
 
-        if event_time_kst.date() != target_date:
+        # 금일 00:00부터 익일 12:00 사이인지 체크
+        if not (start_cutoff <= event_time_kst <= end_cutoff):
             continue
 
         duplicate_key = (
@@ -311,7 +322,7 @@ def download_calendar(target_date, parse_api_key):
 
     print(
         f"Parse.bot 원본 {len(raw_events)}건, "
-        f"한국시간 오늘 High 일정 "
+        f"금일 00시 ~ 익일 12시 High 일정 "
         f"{len(selected_events)}건"
     )
 
@@ -373,50 +384,50 @@ def make_event_block(event):
 
 # ─────────────────────────────────────
 # 텔레그램 전체 메시지 만들기
-# 하단 기준 및 링크는 표시하지 않음
+# (오늘 일정 + 내일 12시 이전 일정 구분)
 # ─────────────────────────────────────
 
-def make_messages(target_date, events):
-    header = make_header(target_date)
-
-    if not events:
-        return [
-            header
-            + "\n\n"
-            + "오늘 예정된 <b>중요도 High</b> "
-            + "경제 이벤트가 없습니다."
-        ]
-
-    blocks = [
-        make_event_block(event)
-        for event in events
+def make_messages(today, tomorrow, events):
+    today_events = [
+        e for e in events if e["_kst_time"].date() == today
+    ]
+    tomorrow_events = [
+        e for e in events if e["_kst_time"].date() == tomorrow
     ]
 
-    messages = []
-    current = header
+    # 기간 내 일정이 전혀 없는 경우
+    if not today_events and not tomorrow_events:
+        return [
+            f"{make_header(today)}\n\n"
+            "금일 0시부터 익일 12시까지 예정된 "
+            "<b>중요도 High</b> 경제 이벤트가 없습니다."
+        ]
 
-    for block in blocks:
-        candidate = (
-            current
-            + "\n\n"
-            + block
+    # 일정을 날짜별 섹션 단위로 구성
+    sections = []
+
+    # 1) 오늘 섹션
+    today_header = make_header(today)
+    if today_events:
+        blocks = [make_event_block(e) for e in today_events]
+        sections.append(today_header + "\n\n" + "\n\n".join(blocks))
+    else:
+        sections.append(
+            today_header + "\n\n" + "오늘 예정된 중요도 High 일정이 없습니다."
         )
 
-        if len(candidate) > 3900:
-            messages.append(current)
+    # 2) 내일 섹션 (내일 12시 전 일정이 있는 경우 추가)
+    if tomorrow_events:
+        tomorrow_header = make_header(tomorrow)
+        blocks = [make_event_block(e) for e in tomorrow_events]
+        sections.append(tomorrow_header + "\n\n" + "\n\n".join(blocks))
 
-            current = (
-                header
-                + "\n\n"
-                + block
-            )
+    # 텔레그램 글자 수 제한(4,096자) 방지 분할 처리
+    full_text = "\n\n".join(sections)
+    if len(full_text) <= 3900:
+        return [full_text]
 
-        else:
-            current = candidate
-
-    messages.append(current)
-
-    return messages
+    return sections
 
 
 # ─────────────────────────────────────
@@ -525,16 +536,20 @@ def main():
     try:
         wait_until_7_kst()
 
-        target_date = datetime.now(KST).date()
+        now_kst = datetime.now(KST)
+        today = now_kst.date()
+        tomorrow = today + timedelta(days=1)
 
         events = download_calendar(
-            target_date=target_date,
+            today=today,
+            tomorrow=tomorrow,
             parse_api_key=parse_api_key,
         )
 
         messages = make_messages(
-            target_date,
-            events,
+            today=today,
+            tomorrow=tomorrow,
+            events=events,
         )
 
         for message in messages:
@@ -547,7 +562,7 @@ def main():
             time.sleep(1)
 
         print(
-            f"{target_date.isoformat()} "
+            f"{today.isoformat()} ~ {tomorrow.isoformat()}(12:00) "
             f"경제캘린더 {len(events)}건 전송 완료"
         )
 
