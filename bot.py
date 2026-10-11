@@ -64,7 +64,7 @@ COUNTRY_INFO = {
     29: ("AR", "🇦🇷"),
     25: ("AU", "🇦🇺"),
     32: ("BR", "🇧🇷"),
-    6: ("CA", "🇨🇦"),
+    6: ("CA", "캐나다"),
     37: ("CN", "🇨🇳"),
     36: ("SG", "🇸🇬"),
     26: ("ES", "🇪🇸"),
@@ -97,7 +97,6 @@ WEEKDAYS_KO = [
 ]
 
 
-# 모바일에서 줄바꿈되지 않도록 짧게 설정
 DIVIDER = "━━━━━━━━━━━━"
 
 
@@ -170,11 +169,10 @@ def parse_utc_time(value):
 
 # ─────────────────────────────────────
 # Parse.bot 경제캘린더 가져오기
-# (금일 00:00 ~ 익일 12:00 범위)
+# (최대 3회 자동 재시도 로직 추가)
 # ─────────────────────────────────────
 
-def download_calendar(today, tomorrow, parse_api_key):
-    # 시차(KST/UTC)를 고려하여 API에는 하루 전부터 내일 다음날까지 넉넉하게 요청
+def download_calendar(today, tomorrow, parse_api_key, max_retries=3):
     api_start = today - timedelta(days=1)
     api_end = tomorrow + timedelta(days=1)
 
@@ -204,28 +202,28 @@ def download_calendar(today, tomorrow, parse_api_key):
         },
     )
 
-    try:
-        with urllib.request.urlopen(
-            request,
-            timeout=90,
-        ) as response:
-            body = response.read().decode("utf-8")
+    body = None
 
-    except urllib.error.HTTPError as error:
-        error_body = error.read().decode(
-            "utf-8",
-            errors="replace",
-        )
+    # 외부 서버 지연 대응: 최대 3회 재시도
+    for attempt in range(1, max_retries + 1):
+        try:
+            print(f"Parse.bot 데이터 요청 중... (시도 {attempt}/{max_retries})")
+            with urllib.request.urlopen(
+                request,
+                timeout=120,  # 대기 시간을 120초로 넉넉하게 상향
+            ) as response:
+                body = response.read().decode("utf-8")
+            break  # 성공 시 루프 탈출
 
-        raise RuntimeError(
-            f"Parse.bot HTTP 오류: "
-            f"{error.code} {error_body[:300]}"
-        ) from error
+        except (urllib.error.HTTPError, urllib.error.URLError, TimeoutError, OSError) as error:
+            print(f"[{attempt}/{max_retries}] 요청 실패 ({error})")
+            if attempt == max_retries:
+                raise RuntimeError(
+                    f"Parse.bot 서버 응답 지연 (총 {max_retries}회 시도 실패): {error}"
+                ) from error
 
-    except urllib.error.URLError as error:
-        raise RuntimeError(
-            f"Parse.bot 접속 오류: {error.reason}"
-        ) from error
+            print("15초 후 다시 시도합니다...")
+            time.sleep(15)
 
     try:
         result = json.loads(body)
@@ -292,7 +290,6 @@ def download_calendar(today, tomorrow, parse_api_key):
         except Exception:
             continue
 
-        # 금일 00:00부터 익일 12:00 사이인지 체크
         if not (start_cutoff <= event_time_kst <= end_cutoff):
             continue
 
@@ -384,7 +381,6 @@ def make_event_block(event):
 
 # ─────────────────────────────────────
 # 텔레그램 전체 메시지 만들기
-# (오늘 일정 + 내일 12시 이전 일정 구분)
 # ─────────────────────────────────────
 
 def make_messages(today, tomorrow, events):
@@ -395,7 +391,6 @@ def make_messages(today, tomorrow, events):
         e for e in events if e["_kst_time"].date() == tomorrow
     ]
 
-    # 기간 내 일정이 전혀 없는 경우
     if not today_events and not tomorrow_events:
         return [
             f"{make_header(today)}\n\n"
@@ -403,10 +398,9 @@ def make_messages(today, tomorrow, events):
             "<b>중요도 High</b> 경제 이벤트가 없습니다."
         ]
 
-    # 일정을 날짜별 섹션 단위로 구성
     sections = []
 
-    # 1) 오늘 섹션
+    # 오늘 섹션
     today_header = make_header(today)
     if today_events:
         blocks = [make_event_block(e) for e in today_events]
@@ -416,13 +410,12 @@ def make_messages(today, tomorrow, events):
             today_header + "\n\n" + "오늘 예정된 중요도 High 일정이 없습니다."
         )
 
-    # 2) 내일 섹션 (내일 12시 전 일정이 있는 경우 추가)
+    # 내일 섹션
     if tomorrow_events:
         tomorrow_header = make_header(tomorrow)
         blocks = [make_event_block(e) for e in tomorrow_events]
         sections.append(tomorrow_header + "\n\n" + "\n\n".join(blocks))
 
-    # 텔레그램 글자 수 제한(4,096자) 방지 분할 처리
     full_text = "\n\n".join(sections)
     if len(full_text) <= 3900:
         return [full_text]
